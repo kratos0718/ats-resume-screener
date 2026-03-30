@@ -2,27 +2,26 @@ import os
 import json
 import streamlit as st
 from dotenv import load_dotenv
-
 from pathlib import Path
+
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 
 def _get_api_key() -> str:
-    key = os.getenv("GOOGLE_API_KEY")
+    key = os.getenv("GROQ_API_KEY")
     if not key:
         try:
-            key = st.secrets.get("GOOGLE_API_KEY", "")
+            key = st.secrets.get("GROQ_API_KEY", "")
         except Exception:
             key = ""
     if not key:
-        raise ValueError("GOOGLE_API_KEY not set. Add it to .env or Streamlit secrets.")
+        raise ValueError("GROQ_API_KEY not set. Add it to .env or Streamlit secrets.")
     return key
 
 
-def _model():
-    import google.generativeai as genai
-    genai.configure(api_key=_get_api_key())
-    return genai.GenerativeModel("gemini-2.0-flash")
+def _client():
+    from groq import Groq
+    return Groq(api_key=_get_api_key())
 
 
 MAIN_PROMPT = """You are an expert ATS (Applicant Tracking System) and career coach with 10 years experience helping candidates get past automated screening systems.
@@ -75,30 +74,37 @@ Job description keywords to include: {top_keywords}
 Return ONLY the rewritten bullet. Nothing else."""
 
 
-def analyse_resume(job_description: str, resume_text: str) -> dict:
-    """Call Gemini 1.5 Flash with the main analysis prompt and return parsed JSON dict."""
-    prompt = MAIN_PROMPT.format(job_description=job_description, resume_text=resume_text)
-    response = _model().generate_content(prompt)
-    raw = response.text.strip()
-
-    # Strip markdown fences the model sometimes adds despite instructions
+def _parse_json(raw: str) -> dict:
+    raw = raw.strip()
     if "```" in raw:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.strip()
-
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Gemini returned invalid JSON: {e}\n\nRaw response:\n{raw[:500]}")
+        raise ValueError(f"Model returned invalid JSON: {e}\n\nRaw response:\n{raw[:500]}")
+
+
+def analyse_resume(job_description: str, resume_text: str) -> dict:
+    prompt = MAIN_PROMPT.format(job_description=job_description, resume_text=resume_text)
+    response = _client().chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+    )
+    return _parse_json(response.choices[0].message.content)
 
 
 def rewrite_bullet(bullet: str, top_keywords: list[str]) -> str:
-    """Rewrite a single resume bullet to target the JD keywords."""
     prompt = BULLET_PROMPT.format(
         bullet=bullet,
         top_keywords=", ".join(top_keywords[:12]),
     )
-    response = _model().generate_content(prompt)
-    return response.text.strip()
+    response = _client().chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3,
+    )
+    return response.choices[0].message.content.strip()
