@@ -22,7 +22,7 @@ def _get_api_key() -> str:
 def _model():
     import google.generativeai as genai
     genai.configure(api_key=_get_api_key())
-    return genai.GenerativeModel("gemini-1.5-flash")
+    return genai.GenerativeModel("gemini-2.0-flash")
 
 
 MAIN_PROMPT = """You are an expert ATS (Applicant Tracking System) and career coach with 10 years experience helping candidates get past automated screening systems.
